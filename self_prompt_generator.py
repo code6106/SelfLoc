@@ -1,5 +1,5 @@
+import argparse
 import os
-import pickle
 import cv2
 import torch
 from tqdm import tqdm
@@ -11,6 +11,7 @@ from src.visualizations import visualize_img, visualize_predictions
 from typing import Any, Dict, List
 from datasets.datasets import build_dataset
 
+from segment_anything import SamPredictor, sam_model_registry
 
 def get_vit_encoder(vit_arch, vit_model, vit_patch_size, enc_type_feats):
     if vit_arch == "vit_small" and vit_patch_size == 16:
@@ -54,13 +55,7 @@ def get_vit_encoder(vit_arch, vit_model, vit_patch_size, enc_type_feats):
 
     return vit_encoder, initial_dim, hook_features
 
-vit_model="dino"
-vit_arch="vit_small"
-vit_patch_size=16
-enc_type_feats="k"
-vit_encoder, initial_dim, hook_features = get_vit_encoder(
-            vit_arch, vit_model, vit_patch_size, enc_type_feats
-    )
+
 
 @torch.no_grad()
 def extract_feats(dims, type_feats="k"):
@@ -144,15 +139,9 @@ def save_mask_as_image(masks, image_name, save_path, color=None):
         # Save the mask as an image in the specified directory
         # print(colored_mask.shape)
         cv2.imwrite(os.path.join(save_full_path, save_file_name), colored_mask)
-from segment_anything import SamPredictor, sam_model_registry
-sam = sam_model_registry["vit_h"](checkpoint="/data/user/2022/zjh/FOUND/sam_vit_h_4b8939.pth")
-device = torch.device('cuda')
-sam.to(device=device)
-predictor = SamPredictor(sam)
 
-def generate(image_path):
-    #default params
-    dataset_dir="/data/user/2022/zjh/datasets"
+
+def generate(image_path,dataset_dir="/data/datasets",save_path="./output/"):
 
     # ------------------------------------
     
@@ -176,9 +165,7 @@ def generate(image_path):
         shuffle=False,
         num_workers=2
     )
-    # valbar = tqdm(enumerate(valloader, 0), leave=None)
-    # for i, data in valbar:
-    #     inputs, _, gt_labels, img_path = data
+
     pbar = dataset.dataloader
     for im_id, inp in enumerate(pbar):
         img = inp[0]
@@ -225,17 +212,17 @@ def generate(image_path):
         
 
         
-        # print(type(pred))
         image = dataset.load_image(im_name, size_im)
         
-        visualize_predictions(image, pred, "/data/user/2022/zjh/Seuol/output/Test/Prompt", im_name)
-        # visualize_img(image,"./exp","new_image.jpg")
+        # visualize_predictions(image, pred, "./output/vis_prompt", im_name)
+        
         image=np.array(image)
         
         predictor.set_image(image)
         masks, _, _ = predictor.predict(box=pred)    
         # print(im_name)
-        save_mask_as_image(masks, im_name, "/data/user/2022/zjh/Seuol/output/Test/Sam")
+        
+        save_mask_as_image(masks, im_name,save_path )
         return pred,im_name
 
 def list_files(directory):
@@ -258,16 +245,32 @@ def list_files(directory):
     return files_list
 
 if __name__=="__main__":
-    directory_path = '/data/datasets/DUTS/DUTS-TE-Image'  # 替换为您的目录路径
-    all_files = list_files(directory_path)
+    parser = argparse.ArgumentParser(description="Generate and save mask predictions.")
+    parser.add_argument("--save_path", type=str, required=True, help="Path to save the generated mask predictions.")
+    parser.add_argument("--images_path", type=str, required=True, help="Directory path containing images to process.")
+    
+    args = parser.parse_args()
+
+    # DINO configuration
+    vit_model="dino"
+    vit_arch="vit_small"
+    vit_patch_size=16
+    enc_type_feats="k"
+    vit_encoder, initial_dim, hook_features = get_vit_encoder(
+                vit_arch, vit_model, vit_patch_size, enc_type_feats
+        )
+    
+    # SAM configuration
+    sam = sam_model_registry["vit_h"](checkpoint="./sam_vit_h_4b8939.pth")
+    device = torch.device('cuda')
+    sam.to(device=device)
+    predictor = SamPredictor(sam)
+    
+    # Load and process images
+    all_files = list_files(args.images_path)
     preds_dict = {}
 
-    for file in tqdm(all_files, desc="Generating all sam result"):
-        pred,im_name=generate(file)
-            # Save the prediction
-        preds_dict[im_name] = pred
-    filename = os.path.join("/data/output/Test", "DUTS.pkl")
-    with open(filename, "wb") as f:
-        pickle.dump(preds_dict, f)
-    print("Predictions saved at %s" % filename)
+    for file in tqdm(all_files, desc="Generating all prompt sam pred result"):
+        pred, im_name = generate(image_path=file, dataset_dir=args.images_path, save_path=args.save_path)
+        
 

@@ -39,6 +39,6 @@ class Merge_MaxIoU(Merger):
             # Trust CAM if SAM has no prediction on that pixel
             candidates.append(cam_mask)
             processed_mask[np.sum(candidates, axis=0) > 0] = i
-        print(candidate_names)
+        # print(candidate_names)
         im = Image.fromarray(processed_mask)
         im.save(f'{save_path}/{name}.png')
